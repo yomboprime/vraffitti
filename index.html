@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webvr - graffitti</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #101010;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			a {
+				color: #f00;
+			}
+		</style>
+	</head>
+	<body>
+
+		<script src="../build/three.js"></script>
+
+		<script src="js/WebVR.js"></script>
+		<script src="js/effects/VREffect.js"></script>
+		<script src="js/controls/VRControls.js"></script>
+		<script src="js/ViveHydraController.js"></script>
+
+		<script src="js/loaders/OBJLoader.js"></script>
+
+		<script src="js/GPUComputationRenderer.js"></script>
+
+		<script id="sheetFragmentShader" type="x-shader/x-fragment">
+
+			#include <common>
+
+			uniform vec3 paintPos;
+			uniform vec3 paintDir;
+			uniform float paintStrength;
+			uniform vec3 paintColor;
+
+			#define deltaTime ( 1.0 / 60.0 )
+
+			void main()	{
+
+				vec2 cellSize = 1.0 / resolution.xy;
+
+				vec2 uv = gl_FragCoord.xy * cellSize;
+
+				// heightmapValue.rgb == color
+				// heightmapValue.a == amount of paint
+				vec4 sheetValue = texture2D( sheet, uv );
+
+				sheetValue.a = min( sheetValue.a, 1.0 );
+
+				vec4 north = texture2D( sheet, uv + vec2( 0.0, cellSize.y ) );
+
+			        vec3 position = vec3( BOUNDS * ( uv - vec2( 0.5, 0.5 ) ), 0.0 ) - paintPos;
+
+				float distance = length( position );
+
+				float dotDirPos = max( 0.0, dot( position, paintDir ) / distance );
+				
+				float paintIntensity = max( 0.0, min( 1.0, paintStrength * pow( dotDirPos, 150.0 ) * 0.05 / pow( distance, 2.0 ) ) );
+
+				if ( paintIntensity > rand( paintPos.xy + uv ) ) {
+
+					vec3 newColor = ( 1.0 - paintIntensity ) * sheetValue.rgb + paintIntensity * paintColor;
+					float newAmount = sheetValue.a + paintIntensity * 0.1;
+				
+					sheetValue = vec4( newColor, newAmount );
+				}
+
+				float drip = north.a - 1.0;
+
+				if ( drip > rand( paintPos.yz + uv )) {
+
+					sheetValue.a += max( drip - 0.01, 0.0 );
+
+					sheetValue.rgb = north.rgb;
+
+				}
+
+				gl_FragColor = sheetValue;
+
+			}
+
+		</script>
+
+		<script>
+
+			if ( WEBVR.isLatestAvailable() === false ) {
+
+				document.body.appendChild( WEBVR.getMessage() );
+
+			}
+
+			var SIZE = 2048;
+			var BOUNDS = 1.8;
+
+			var clock = new THREE.Clock();
+
+			var container;
+			var camera, scene, renderer;
+			var effect, controls;
+			var controller1, controller2;
+			var raycaster;
+			var gpuCompute;
+			var sheetVariable;
+			var sheetMaterial;
+			var sheetUniforms;
+
+			var sheet;
+			var menu;
+			var sphereCursor;
+
+			var button1Pressed = false;
+
+			var brickTexturePath = 'Solna_Karolinska_institutet_Brick_wall02.jpg';
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				var info = document.createElement( 'div' );
+				info.style.position = 'absolute';
+				info.style.top = '10px';
+				info.style.width = '100%';
+				info.style.textAlign = 'center';
+				info.innerHTML = '<a href="http://threejs.org" target="_blank">three.js</a> webgl - htc vive';
+				container.appendChild( info );
+
+				scene = new THREE.Scene();
+
+				camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 10 );
+				scene.add( camera );
+
+				sheetMaterial = new THREE.MeshPhongMaterial( { color: 0xFFFFFF } );
+				sheet = new THREE.Mesh( new THREE.PlaneBufferGeometry( BOUNDS, BOUNDS, 1, 1 ), sheetMaterial );
+				sheet.position.set( 0, 1, -0.6 );
+				scene.add( sheet );
+
+				scene.add( new THREE.HemisphereLight( 0x606060, 0x404040 ) );
+
+				var light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 1, 1, 1 ).normalize();
+				scene.add( light );
+
+				raycaster = new THREE.Raycaster();
+
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setClearColor( 0x505050 );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.sortObjects = false;
+				container.appendChild( renderer.domElement );
+
+				controls = new THREE.VRControls( camera );
+				controls.standing = true;
+
+				// controllers
+
+				controller1 = new THREE.ViveHydraController( 0 );
+				controller1.standingMatrix = controls.getStandingMatrix();
+				scene.add( controller1 );
+
+				controller2 = new THREE.ViveHydraController( 1 );
+				controller2.standingMatrix = controls.getStandingMatrix();
+				scene.add( controller2 );
+
+				var loader = new THREE.OBJLoader();
+				loader.setPath( 'models/obj/vive-controller/' );
+				loader.load( 'vr_controller_vive_1_5.obj', function ( object ) {
+
+					var loader = new THREE.TextureLoader();
+					loader.setPath( 'models/obj/vive-controller/' );
+
+					var controller = object.children[ 0 ];
+					controller.material.map = loader.load( 'onepointfive_texture.png' );
+					controller.material.specularMap = loader.load( 'onepointfive_spec.png' );
+
+					controller1.add( object.clone() );
+					controller2.add( object.clone() );
+
+				} );
+
+				gpuCompute = new GPUComputationRenderer( SIZE, SIZE, renderer );
+				sheetVariable = gpuCompute.addVariable( "sheet", document.getElementById( 'sheetFragmentShader' ).textContent, gpuCompute.createTexture() );
+				gpuCompute.setVariableDependencies( sheetVariable, [ sheetVariable ] );
+
+				sheetUniforms = sheetVariable.material.uniforms;
+
+				sheetUniforms.paintPos = { value: new THREE.Vector3( 1000, 1000, 1000 ) };
+				sheetUniforms.paintDir = { value: new THREE.Vector3( 0, 0, -1 ) };
+				sheetUniforms.paintStrength = { value: 0 };
+				sheetUniforms.paintColor = { value: new THREE.Vector3( 0, 1, 0 ) };
+				sheetVariable.material.defines.BOUNDS = BOUNDS.toFixed( 1 );
+
+				var error = gpuCompute.init();
+				if ( error !== null ) {
+					console.error( error );
+				}
+
+				loadSheetTexture( 'textures/', brickTexturePath );
+
+				createMenu();
+
+				effect = new THREE.VREffect( renderer );
+
+				if ( WEBVR.isAvailable() === true ) {
+
+					document.body.appendChild( WEBVR.getButton( effect ) );
+
+				}
+				else {
+
+				    	// Set camera position to handle the case of no VR display
+					camera.position.setY( controls.userHeight );
+
+				}
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+			var handleController = function() {
+
+				function transformFreeVectorInverse( v, m ) {
+
+					// input:
+					// vector interpreted as a free vector
+					// THREE.Matrix4 orthogonal matrix (matrix without scale)
+					// output:
+					// the vector is transformd inversely with the matrix
+
+					var x = v.x, y = v.y, z = v.z;
+					var e = m.elements;
+
+					v.x = e[ 0 ] * x + e[ 1 ] * y + e[ 2 ]  * z;
+					v.y = e[ 4 ] * x + e[ 5 ] * y + e[ 6 ]  * z;
+					v.z = e[ 8 ] * x + e[ 9 ] * y + e[ 10 ] * z;
+
+					return v;
+
+				};
+
+				var vector1 = new THREE.Vector3();
+				var vector2 = new THREE.Vector3();
+				var vector3 = new THREE.Vector3();
+
+				return function handleController( controller ) {
+
+					var gamepad = controller.getGamepad();
+
+					if ( gamepad ) {
+
+						var trigger = gamepad.trigger;
+
+						if ( trigger === undefined ) {
+
+						    trigger = gamepad.buttons[ 0 ].pressed ? 1 : 0;
+
+						}
+
+						vector1.set( 0, 0, -1 ).transformDirection( controller.matrixWorld );
+
+						sheetUniforms.paintPos.value.copy( controller.position ).sub( sheet.position );
+						sheetUniforms.paintDir.value.copy( vector1 );
+						sheetUniforms.paintStrength.value = trigger;
+
+						var tempButton1Pressed = gamepad.buttons[ 1 ].pressed;
+						if ( tempButton1Pressed && ! button1Pressed ) {
+
+							// Toggle menu visible
+
+							if ( menu.visible ) {
+
+								menu.visible = false;
+
+							}
+							else {
+
+								menu.position.copy( controller.position );
+								menu.position.y += 0.3;
+								menu.quaternion.copy( controller.quaternion );
+								menu.visible = true;
+
+							}
+
+						}
+						else {
+
+							// Raycast menu objects
+
+							raycaster.ray.origin.copy( controller.position );
+							raycaster.ray.direction.copy( vector1 );
+
+							var intersects = this.raycaster.intersectObject( menu, true );
+
+							if ( intersects.length > 0 ) {
+
+								vector2.copy( intersects[ 0 ].point );
+
+								sphereCursor.visible = true;
+								sphereCursor.position.copy( vector2 );
+
+								var object = intersects[ 0 ].object;
+
+								if ( object && object.userData.vrClickFunction ) {
+
+									vector3.setFromMatrixPosition( object.matrixWorld ).negate().add( vector2 );
+									transformFreeVectorInverse( vector3, object.matrixWorld );
+
+									// Call menu option function
+									object.userData.vrClickFunction( vector3, vector2, trigger );
+
+									sheetUniforms.paintStrength.value = 0;
+
+								}
+
+							}
+							else {
+
+								sphereCursor.visible = false;
+
+							}
+
+					       }
+					       button1Pressed = tempButton1Pressed;
+
+					}
+				}
+
+			}();
+
+			function loadSheetTexture( dir, path ) {
+
+				var textureLoader = new THREE.TextureLoader();
+				textureLoader.setPath( dir );
+				textureLoader.load( path, function( texture ) {
+
+					gpuCompute.renderTexture( texture, gpuCompute.getCurrentRenderTarget( sheetVariable ) );
+					gpuCompute.renderTexture( texture, gpuCompute.getAlternateRenderTarget( sheetVariable ) );
+
+				} );
+
+			}
+
+			function createMenu() {
+
+				menu = new THREE.Mesh( new THREE.BoxBufferGeometry( 0.4, 0.6, 0.04 ).translate( 0.2, 0.06, 0 ), new THREE.MeshLambertMaterial() );
+				var c = sheetUniforms.paintColor.value;
+				menu.material.color.setRGB( c.x, c.y, c.z );
+				menu.position.set( -0.2, 0, -0.4 );
+				menu.visible = false;
+
+				sphereCursor = new THREE.Mesh( new THREE.SphereBufferGeometry( 0.01, 6, 6 ), new THREE.MeshLambertMaterial( { color: 0xFFFFFF } ) );
+				scene.add( sphereCursor );
+				sphereCursor.visible = false;
+
+				// 3 box options for setting paint color R, G and B
+
+				var markerMaterial = new THREE.MeshLambertMaterial( { color: 0xFFFFFF } );
+
+				for ( var i = 0; i < 3; i++ ) {
+
+					var theColor = 0x000000FF << ( 8 * ( 2 - i ) );
+					var material = new THREE.MeshLambertMaterial( { color: theColor } );
+					var boxWidth =  0.34;
+					var colorOption = new THREE.Mesh( new THREE.BoxBufferGeometry( boxWidth, 0.1, 0.04 ).translate( boxWidth * 0.5, 0, 0 ), material );
+					menu.add( colorOption );
+					colorOption.position.set( 0.03, ( 2 - i ) * ( 0.1 + 0.04 ), 0.02 );
+
+					var marker = new THREE.Mesh( new THREE.BoxBufferGeometry( 0.01, 0.1, 0.01 ), markerMaterial );
+					var col = sheetUniforms.paintColor.value;
+					marker.position.set( ( i === 0 ? col.x : ( i === 1 ? col.y : col.z ) ) * boxWidth, 0, 0.02 );
+
+					colorOption.add( marker );
+					colorOption.userData.marker = marker;
+
+					colorOption.userData.vrClickFunction = function colorCallback( material, colorIndex, colorOption ) {
+
+						return function vrClickFunction( position, worldPosition, trigger ) {
+
+						    if ( trigger > 0.5 ) {
+
+							    var amount = 2 * position.x / boxWidth;
+							    switch ( colorIndex ) {
+								case 0:
+								    sheetUniforms.paintColor.value.x = amount;
+								    material.color.r = amount;
+								    menu.material.color.r = amount;
+								    break;
+								case 1:
+								    sheetUniforms.paintColor.value.y = amount;
+								    material.color.g = amount;
+								    menu.material.color.g = amount;
+								    break;
+								case 2:
+								    sheetUniforms.paintColor.value.z = amount;
+								    material.color.b = amount;
+								    menu.material.color.b = amount;
+								    break;
+							    }
+
+							    colorOption.userData.marker.position.setX( position.x );
+
+						    }
+
+						}
+
+					}( material, i, colorOption );
+
+				}
+				
+				// Option for clearing the wall
+				var buttonCanvas = document.createElement( "canvas" );
+				buttonCanvas.width = 512;
+				buttonCanvas.height = 128;
+				var ctx2d = buttonCanvas.getContext( "2d" );
+				ctx2d.fillStyle = "white";
+				ctx2d.fillRect( 0, 0 , buttonCanvas.width, buttonCanvas.height );
+				ctx2d.font = "60px Courier New";
+				ctx2d.textAlign = "center";
+				ctx2d.fillStyle = "black";
+				ctx2d.fillText( "Clear wall", buttonCanvas.width * 0.5, buttonCanvas.height * 0.5 + 10 );
+
+				var clearMaterial = new THREE.MeshBasicMaterial( { color: 0xFFFFFF } );
+
+				getTextureFromCanvas( buttonCanvas, function( texture ) {
+
+					clearMaterial.map = texture;
+					clearMaterial.needsUpdate = true;
+
+				} );
+
+				var clearOption = new THREE.Mesh( new THREE.BoxBufferGeometry( boxWidth, 0.1, 0.04 ).translate( boxWidth * 0.5 + 0.03, 0, 0 ), clearMaterial );
+				menu.add( clearOption );
+				clearOption.position.set( 0, -0.1 - 0.04, 0.02 );
+
+				clearOption.userData.vrClickFunction = function vrClickFunctionContainer() {
+
+					var previousTriggered = false;
+
+					return function vrClickFunction( position, worldPosition, trigger ) {
+
+						if ( trigger > 0.5 ) {
+
+						    if ( ! previousTriggered ) {
+
+							    loadSheetTexture( 'textures/', brickTexturePath );
+							    
+						    }
+
+						    previousTriggered = true;
+
+						}
+						else {
+
+						    previousTriggered = false;
+
+						}
+
+					;}
+
+				}();
+
+				scene.add( menu );
+
+			}
+
+			function getTextureFromCanvas( canvas, onLoad, onProgress, onError ) {
+
+				var textureLoader = new THREE.TextureLoader();
+
+				textureLoader.load( canvas.toDataURL(), onLoad, onProgress, onError );
+
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				effect.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			//
+
+			function animate() {
+
+				effect.requestAnimationFrame( animate );
+				render();
+
+			}
+
+			function render() {
+
+				handleController( controller1 );
+
+				// Do the gpu computation
+				gpuCompute.compute();
+
+				// Get compute output in custom uniform
+				sheetMaterial.map = gpuCompute.getCurrentRenderTarget( sheetVariable ).texture;
+				//sheetMaterial.needsUpdate = true;
+
+				controls.update();
+
+				effect.render( scene, camera );
+
+			}
+
+			init();
+			animate();
+
+		</script>
+	</body>
+</html>
