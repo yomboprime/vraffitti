@@ -19,5 +19,5 @@ The analog trigger doesn't work for Vive yet (seeking info about HTC Vive trigge
 
 ## Menu
 
-In the menu you can select the Red, Green and Red color values, and erase the wall.
+In the menu you can select the Red, Green and Blue color values, and erase the wall.
 
