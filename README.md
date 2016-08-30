@@ -1,5 +1,5 @@
 # vraffitti
-WebVR Graffitti
+WebVR Graffitti. Try it [online here](https://yomboprime.github.io/vraffitti/)
 
 
 Wev VR Graffitti painter application which works with HTC Vive and/or Razer Hydra
