@@ -254,6 +254,8 @@
 
 				return function handleController( controller ) {
 
+					controller.update();
+
 					var gamepad = controller.getGamepad();
 
 					if ( gamepad ) {
@@ -262,7 +264,7 @@
 
 						if ( trigger === undefined ) {
 
-						    trigger = gamepad.buttons[ 0 ].pressed ? 1 : 0;
+						    trigger = controller.getButtonState( 'trigger' );
 
 						}
 
@@ -272,7 +274,7 @@
 						sheetUniforms.paintDir.value.copy( vector1 );
 						sheetUniforms.paintStrength.value = trigger;
 
-						var tempButton1Pressed = gamepad.buttons[ 1 ].pressed;
+						var tempButton1Pressed = controller.getButtonState( 'menu' );
 						if ( tempButton1Pressed && ! button1Pressed ) {
 
 							// Toggle menu visible
