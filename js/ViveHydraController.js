@@ -10,7 +10,12 @@ THREE.ViveHydraController = function ( id ) {
 	var scope = this;
 	var gamepad;
 
-	this.getGamepad = function () { return gamepad; };
+	var axes = [ 0, 0 ];
+	var thumbpadIsPressed = false;
+	var triggerIsPressed = false;
+	var gripsArePressed = false;
+	var menuIsPressed = false;
+
 	this.matrixAutoUpdate = false;
 	this.standingMatrix = new THREE.Matrix4();
 
@@ -21,9 +26,22 @@ THREE.ViveHydraController = function ( id ) {
 	this.razerHydraGamepad = null;
 	this.razerHydraBaseOffset = new THREE.Vector3( -0.4, -1.25, 0.8 );
 
-	function update() {
+	this.getGamepad = function () {
 
-		requestAnimationFrame( update );
+		return gamepad;
+
+	};
+
+	this.getButtonState = function ( button ) {
+
+		if ( button === 'thumbpad' ) return thumbpadIsPressed;
+		if ( button === 'trigger' ) return triggerIsPressed;
+		if ( button === 'grips' ) return gripsArePressed;
+		if ( button === 'menu' ) return menuIsPressed;
+
+	};
+
+	this.update = function () {
 
 		if ( scope.controllerType === scope.CONTROLLER_HTC_VIVE ) {
 
@@ -43,6 +61,8 @@ THREE.ViveHydraController = function ( id ) {
 
 		if ( gamepad !== undefined && gamepad.pose !== null ) {
 
+			//  Position and orientation.
+
 			var pose = gamepad.pose;
 
 			scope.position.fromArray( pose.position );
@@ -50,8 +70,46 @@ THREE.ViveHydraController = function ( id ) {
 			scope.matrix.compose( scope.position, scope.quaternion, scope.scale );
 			scope.matrix.multiplyMatrices( scope.standingMatrix, scope.matrix );
 			scope.matrixWorldNeedsUpdate = true;
-
 			scope.visible = true;
+
+			//  Thumbpad and Buttons.
+
+			if ( axes[ 0 ] !== gamepad.axes[ 0 ] || axes[ 1 ] !== gamepad.axes[ 1 ] ) {
+
+				axes[ 0 ] = gamepad.axes[ 0 ]; //  X axis: -1 = Left, +1 = Right.
+				axes[ 1 ] = gamepad.axes[ 1 ]; //  Y axis: -1 = Bottom, +1 = Top.
+				scope.dispatchEvent( { type: 'axischanged', axes: axes } );
+
+			}
+
+			if ( thumbpadIsPressed !== gamepad.buttons[ 0 ].pressed ) {
+
+				thumbpadIsPressed = gamepad.buttons[ 0 ].pressed;
+				scope.dispatchEvent( { type: thumbpadIsPressed ? 'thumbpaddown' : 'thumbpadup' } );
+
+			}
+
+			if ( triggerIsPressed !== gamepad.buttons[ 1 ].pressed ) {
+
+				triggerIsPressed = gamepad.buttons[ 1 ].pressed;
+				scope.dispatchEvent( { type: triggerIsPressed ? 'triggerdown' : 'triggerup' } );
+
+			}
+
+			if ( gripsArePressed !== gamepad.buttons[ 2 ].pressed ) {
+
+				gripsArePressed = gamepad.buttons[ 2 ].pressed;
+				scope.dispatchEvent( { type: gripsArePressed ? 'gripsdown' : 'gripsup' } );
+
+			}
+
+			if ( menuIsPressed !== gamepad.buttons[ 3 ].pressed ) {
+
+				menuIsPressed = gamepad.buttons[ 3 ].pressed;
+				scope.dispatchEvent( { type: menuIsPressed ? 'menudown' : 'menuup' } );
+
+			}
+
 
 		} else {
 
@@ -122,6 +180,7 @@ THREE.ViveHydraController = function ( id ) {
 				orientation: [ 0, 0, 0, 1 ]
 			},
 			buttons: [],
+			axes: [],
 			trigger: 0
 		};
 		
@@ -129,6 +188,10 @@ THREE.ViveHydraController = function ( id ) {
 			hydraGamepad.buttons[ i ] = {
 				pressed: false
 			};
+		}
+
+		for ( var i = 0; i < 2; i++ ) {
+			hydraGamepad.axes[ i ] = 0.0;
 		}
 
 		return hydraGamepad;
@@ -156,6 +219,8 @@ THREE.ViveHydraController = function ( id ) {
 
 			var id0 = id === 0;
 
+			// pose
+
 			pos[ 0 ] = hydraController.axes[ id0 ? 0 : 8 ] * 4 - offset.x;
 			pos[ 1 ] = hydraController.axes[ id0 ? 1 : 9 ] * 4 - offset.y;
 			pos[ 2 ] = hydraController.axes[ id0 ? 2 : 10 ] * 4 - offset.z;
@@ -164,11 +229,24 @@ THREE.ViveHydraController = function ( id ) {
 			quat[ 2 ] = hydraController.axes[ id0 ? 5 : 13 ];
 			quat[ 3 ] = hydraController.axes[ id0 ? 6 : 14 ];
 
+			// buttons
+
 			dummyHydraGamepad.trigger = hydraController.axes[ id0 ? 7 : 15 ];
 
-			for ( var i = 0, il = dummyHydraGamepad.buttons.length; i < il; i++ ) {
+			// thumb
+			dummyHydraGamepad.buttons[ 0 ].pressed = hydraController.buttons[ id0 ? 6 : 6 + 12 ].pressed;
+			// trigger
+			dummyHydraGamepad.buttons[ 1 ].pressed = dummyHydraGamepad.trigger > 0.5 ? 1 : 0;
+			// grips
+			dummyHydraGamepad.buttons[ 2 ].pressed = hydraController.buttons[ id0 ? 1 : 1 + 12 ].pressed;
+			// menu
+			dummyHydraGamepad.buttons[ 3 ].pressed = hydraController.buttons[ id0 ? 0 : 0 + 12 ].pressed;
 
-				dummyHydraGamepad.buttons[ i ].pressed = hydraController.buttons[ id0 ? i : i + il ].pressed;
+			// joystick
+
+			for ( var i = 0; i < 2; i++ ) {
+
+				dummyHydraGamepad.axes[ i ] = hydraController.axes[ id0 ? i + 16 : i + il + 16 ];
 
 			}
 
@@ -179,8 +257,6 @@ THREE.ViveHydraController = function ( id ) {
 		return undefined;
 
 	}
-
-	update();
 
 };
 
