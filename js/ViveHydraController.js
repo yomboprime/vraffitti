@@ -45,7 +45,7 @@ THREE.ViveHydraController = function ( id ) {
 
 		if ( scope.controllerType === scope.CONTROLLER_HTC_VIVE ) {
 
-			gamepad = navigator.getGamepads()[ id ];
+			gamepad = findGamepad( id );
 
 		}
 		else if ( scope.controllerType === scope.CONTROLLER_RAZER_HYDRA ) {
@@ -65,8 +65,16 @@ THREE.ViveHydraController = function ( id ) {
 
 			var pose = gamepad.pose;
 
-			scope.position.fromArray( pose.position );
-			scope.quaternion.fromArray( pose.orientation );
+			if ( pose.position !== null ) {
+
+				scope.position.fromArray( pose.position );
+
+			}
+			if ( pose.position !== null ) {
+
+				scope.quaternion.fromArray( pose.orientation );
+				
+			}
 			scope.matrix.compose( scope.position, scope.quaternion, scope.scale );
 			scope.matrix.multiplyMatrices( scope.standingMatrix, scope.matrix );
 			scope.matrixWorldNeedsUpdate = true;
@@ -164,10 +172,38 @@ THREE.ViveHydraController = function ( id ) {
 
 		}
 
-		// Assume the controller is an HTC Vive
-		scope.controllerType = scope.CONTROLLER_HTC_VIVE;
+		// Search for HTC Vive controller
+		var viveController = findGamepad( id );
+		if ( viveController !== undefined ) {
 
-		return navigator.getGamepads[ id ];
+			scope.controllerType = scope.CONTROLLER_HTC_VIVE;
+
+		}
+
+		return viveController;
+
+	}
+
+	function findGamepad( id ) {
+
+		// Iterate across gamepads as Vive Controllers may not be
+		// in position 0 and 1.
+
+		var gamepads = navigator.getGamepads();
+
+		for ( var i = 0, j = 0; i < 4; i ++ ) {
+
+			var gamepad = gamepads[ i ];
+
+			if ( gamepad && gamepad.id === 'OpenVR Gamepad' ) {
+
+				if ( j === id ) return gamepad;
+
+				j ++;
+
+			}
+
+		}
 
 	}
 
@@ -246,7 +282,7 @@ THREE.ViveHydraController = function ( id ) {
 
 			for ( var i = 0; i < 2; i++ ) {
 
-				dummyHydraGamepad.axes[ i ] = hydraController.axes[ id0 ? i + 16 : i + il + 16 ];
+				dummyHydraGamepad.axes[ i ] = hydraController.axes[ id0 ? i + 16 : i + 2 + 16 ];
 
 			}
 
