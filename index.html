@@ -186,6 +186,10 @@
 
 				} );
 
+				// Make its own renderer for the GPUComp
+				//var compRenderer = new THREE.WebGLRenderer( { antialias: false } );
+				//compRenderer.setSize( 512, 512 );
+
 				gpuCompute = new GPUComputationRenderer( SIZE, SIZE, renderer );
 				sheetVariable = gpuCompute.addVariable( "sheet", document.getElementById( 'sheetFragmentShader' ).textContent, gpuCompute.createTexture() );
 				gpuCompute.setVariableDependencies( sheetVariable, [ sheetVariable ] );
@@ -505,8 +509,16 @@
 
 				handleController( controller1 );
 
+				// Tests... VREffect is not restoring viewport
+				renderer.setRenderTarget( null );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setScissorTest( false );
+				renderer.setViewport( 0, 0, window.innerWidth, window.innerHeight );
+
 				// Do the gpu computation
 				gpuCompute.compute();
+
+				renderer.setPixelRatio( 1 );
 
 				// Get compute output in custom uniform
 				sheetMaterial.map = gpuCompute.getCurrentRenderTarget( sheetVariable ).texture;
